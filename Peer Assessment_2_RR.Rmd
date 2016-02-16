@@ -1,0 +1,154 @@
+---
+title: "Public Health Consequences and Economic Consequences of Storm Events in America"
+author: "Rory Quinn"
+date: "Friday, September 25, 2015"
+output: html_document
+---
+
+###**Synopsis**
+This analysis looks at the consequences of storms and other severe weather events in America. Using data from the National Climatic Data Center, the consequences of severe weather events for both public health (fatalities and injuries) and the economy (crop damage and property damage) in the USA are analysed. The most damaging weather event for public health was identified as tornadoes while the most damaging event in economic terms was also identified as tornadoes. The results of this analysis should be interpreted with caution and some limitations of the analysis are briefly discusseed. 
+
+###**Data Processing**
+The first steps are to download the dataset and read in the dataset.
+
+download.file ("https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2","StormData.csv.bz2")
+```{r}
+Stormdata <- read.csv("StormData.csv.bz2", stringsAsFactors= FALSE)
+```
+There is no codebook accompanying the dataset but there is [accompanying documentation](https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2Fpd01016005curr.pdf) that we need to download and read. 
+
+Lets take a look at the data.
+```{r}
+str (Stormdata)
+dim (Stormdata)
+```
+
+It is apparent that we are dealing with a reasonably large dataset here. Over 900,000 observations across 37 variables. We will load the dplyr library and convert to a tbl_df for ease of viewing. We will also load the other packages we need for the analysis.
+```{r}
+library (dplyr)
+library (reshape2)
+library (ggplot2)
+Stormdata <- tbl_df (Stormdata)
+```
+
+We are only interested in observations which recorded either human or economic damage so we filter on these columns. This reduces the size of the dataset we have to work with.
+
+```{r}
+Stormdata <- filter (Stormdata, FATALITIES > 0 | INJURIES > 0 | PROPDMG > 0 | CROPDMG > 0)
+number_of_events <- length (unique(Stormdata$EVTYPE))
+unique (Stormdata$EVTYPE)
+```
+
+It is apparent that the column in the data that records the type of weather event is the EVTYPE column and the accompanying documentation indicates that there are 48 distinct event types currently defined and used to classify severe weather events in America. The EVTYPE column in our data shows `r number_of_events` and it is apparent that the data in this column is quite messy. Before proceeding further with the analysis I attempted to reduce the numer of weather events in this column to more closely resemble the 48 categories in the supporting documentation.
+
+I did this by replacing character strings with one of the 48 defined events using the gsub function as per the code below. This is a rather crude and inefficient method of mapping the events. It is quite laborious and means in some cases, where variables share a common string, converting strings into intermediate character string before converting to one of the recognised 48 event types for example when dealing with FLOOD, COASTAL FLOOD, FLASH FLOOD categories.
+```{r}
+Stormdata$EVTYPE <- toupper(Stormdata$EVTYPE)
+Stormdata$EVTYPE <- gsub (".*HURRICANE.*|.*TYPHOON.*","HURRICANE (TYPHOON)", Stormdata$EVTYPE)
+Stormdata$EVTYPE <- gsub ("NON-TSTM WIND|NON TSTM WIND|.*HIGH WIND.*|HIGH  WIND", "HIGH WIND", Stormdata$EVTYPE)
+Stormdata$EVTPE <- gsub (".*MARINE TSTM.*", "MARINE TW", Stormdata$EVTYPE)
+Stormdata$EVTYPE <- gsub (".*TSTM.*|.*THUDER.*|.*THUNDERT.*|.*THUNDERSTR.*|.*BURST.*|.*GUSTN.*|.*THUNDERSTORM.*|.*THUNDERESTORM.*|.*THUNERST.*|.*THUNDEER.*", "THUNDERSTORM WIND", Stormdata$EVTYPE)
+Stormdata$EVTYPE <- gsub ("MARINE TW", "MARINE THUNDERSTORM WIND", Stormdata$EVTYPE)
+Stormdata$EVTYPE <- gsub ("WINTRY MIX|.*WINTER WEATHER.*|LIGHT SNOW", "WINTER WEATHER", Stormdata$EVTYPE)
+## in order to avoid Flash Flood, Coastal Flood and Lakeshore Flood all being subsumed 
+## into Flood, I had to first convert these strings into something else and then convert 
+## them back.
+Stormdata$EVTYPE <- gsub (".*FLASH.*|RAPIDLY RISING WATER", "FF", Stormdata$EVTYPE)
+Stormdata$EVTYPE <- gsub ("*COASTAL.*", "CF", Stormdata$EVTYPE)
+Stormdata$EVTYPE <- gsub ("LAKE FLOOD|.*LAKESH.*", "LF", Stormdata$EVTYPE)
+Stormdata$EVTYPE <- gsub (".*FLOOD.*", "FLOOD", Stormdata$EVTYPE)
+Stormdata$EVTYPE <- gsub ("FF", "FLASH FLOOD", Stormdata$EVTYPE)
+Stormdata$EVTYPE <- gsub ("CF", "COASTAL FLOOD", Stormdata$EVTYPE)
+Stormdata$EVTYPE <- gsub ("LF", "LAKESHORE FLOOD", Stormdata$EVTYPE)
+Stormdata$EVTYPE <- gsub (".*TROPICAL STORM.*", "TROPICAL STORM", Stormdata$EVTYPE)
+Stormdata$EVTYPE <- gsub (".*WATERSPOUT.*", "WATERSPOUT", Stormdata$EVTYPE)
+Stormdata$EVTYPE <- gsub (".*TORNA.*|.*TORND.*|.*WHIRL.*|LANDSPOUT", "TORNADO", Stormdata$EVTYPE)
+Stormdata$EVTYPE <- gsub (".*HEAVY SNOW.*|.*HEAVYSN.*", "HEAVY SNOW", Stormdata$EVTYPE)
+Stormdata$EVTYPE <- gsub (".*STRONG WIND.*", "STRONG WIND", Stormdata$EVTYPE)
+Stormdata$EVTYPE <- gsub (".*MARINE HAIL.*", "MH", Stormdata$EVTYPE)
+Stormdata$EVTYPE <- gsub (".*HAIL.*", "HAIL", Stormdata$EVTYPE)
+Stormdata$EVTYPE <- gsub ("MH", "MARINE HAIL", Stormdata$EVTYPE)
+Stormdata$EVTYPE <- gsub (".*FIRE.*", "WILDFIRE", Stormdata$EVTYPE)
+Stormdata$EVTYPE <- gsub (".*AVALANC.*", "AVALANCHE", Stormdata$EVTYPE)
+Stormdata$EVTYPE <- gsub (".*HEAVY SWELL.*|HIGH WAVES|HIGH SWELLS|HEAVY SEAS|.*SURF.*", "HIGH SURF", Stormdata$EVTYPE)
+Stormdata$EVTYPE <- gsub (".*FREEZ.*|.*FROST.*", "FROST/FREEZE", Stormdata$EVTYPE)
+Stormdata$EVTYPE <- gsub (".*LIGHTNIN.*|.*LIGNT.*|LIGHTING", "LIGHTNING", Stormdata$EVTYPE)
+Stormdata$EVTYPE <- gsub (".*WARM.*", "HEAT", Stormdata$EVTYPE)
+Stormdata$EVTYPE <- gsub (".*EXTREME COLD.*|.*BITTER.*|.*RECORD CO.*|.*HYPOTHERMIA.*|.*HYPERTHERMIA*|.*CHILL.*", "EXTREMCOLD", Stormdata$EVTYPE)
+Stormdata$EVTYPE <- gsub (".*COLD.*|.*CHILL.*|.*LOW TE.*", "COLD/WIND CHILL", Stormdata$EVTYPE)
+Stormdata$EVTYPE <- gsub ("EXTREMCOLD|EXTREME COLD/WIND CHILL/EXPOSURE", "EXTREME COLD/WIND CHILL", Stormdata$EVTYPE)
+Stormdata$EVTYPE <- gsub (".*DROUGHT.*", "DROUGHT", Stormdata$EVTYPE)
+Stormdata$EVTYPE <- gsub (".*HEAVY RAIN.*|UNSEASONAL RAIN|HEAVY PRECIPITATION|EXCESSIVE RAINFALL|.*HEAVY SHOW.*|.*HVY RAIN.*|.*TORRENTIAL.*|RECORD RAINFALL", "HEAVY RAIN", Stormdata$EVTYPE)
+Stormdata$EVTYPE <- gsub (".*GUSTY.*", "STRONG WIND", Stormdata$EVTYPE)
+Stormdata$EVTYPE <- gsub (".*WINTER STORM.*", "WINTER STORM", Stormdata$EVTYPE)
+Stormdata$EVTYPE <- gsub ("LAKE EFLASH FLOODECT SNOW|LAKE-EFLASH FLOODECT SNOW", "LAKEEFFECT", Stormdata$EVTYPE)
+Stormdata$EVTYPE <- gsub (".*SNOW.*", "HEAVY SNOW", Stormdata$EVTYPE)
+Stormdata$EVTYPE <- gsub ("LAKEEFFECT", "LAKE-EFFECT SNOW", Stormdata$EVTYPE)
+Stormdata$EVTYPE <- gsub (".*SLIDE.*|.*SLUMP.*", "DEBRIS FLOW", Stormdata$EVTYPE)
+Stormdata$EVTYPE <- gsub ("HEAT WAVES|RECORD/EXCESSIVE HEAT|RECORD HEAT", "EXCESSIVE HEAT", Stormdata$EVTYPE)
+Stormdata$EVTYPE <- gsub (".*ICE STORM.*", "ICST", Stormdata$EVTYPE)
+Stormdata$EVTYPE <- gsub (".*WINTER WEATHER.*|RAIN/WIND|WINTER WEATHER.*|COOL AND WET|GLAZE|ICE ON ROAD|ICE|ICE ON ROAD|BLACK ICE|ICY ROADS|FOG|ICE JAM", "WINTER WEATHER", Stormdata$EVTYPE)
+Stormdata$EVTYPE <- gsub ("ICST", "ICE STORM", Stormdata$EVTYPE)
+Stormdata$EVTYPE <- gsub (".*BLIZZARD.*", "BLIZZARD", Stormdata$EVTYPE)
+Stormdata$EVTYPE <- gsub (".*WIND DAMAGE.*|HIGH WINDS", "HIGH WIND", Stormdata$EVTYPE)
+Stormdata$EVTYPE <- gsub ("BLOWING DUST", "DUST STORM", Stormdata$EVTYPE)
+```     
+
+###**Results**
+
+*1. Across the United States which types of events are most harmful with respect to population health?*
+
+In order to look at the effects of severe weather events on health, I summed fatalities and injuries for each event type and then combined thse into a total column which I used to rank the events in decreasing order of impact on population health. 
+```{r}
+Stormdata %>% select (EVTYPE, FATALITIES, INJURIES)%>% group_by (EVTYPE)%>%summarise (total_injury=sum(INJURIES),total_fatal=sum(FATALITIES))%>% mutate (total=total_fatal + total_injury)%>% arrange (desc(total)) -> health
+head (health, 20)
+```
+
+It is apparent from the table above that the weather event most harmful to human health in America is Tornadoes followed by Thunderstorm Wind and Excessive Heat. 
+
+```{r}
+top <-  health [1:10, 1:3]
+topmelt <- melt (top, id.var="EVTYPE")
+g <- ggplot(topmelt, aes(x=EVTYPE, y=value, fill=variable)) + geom_bar(stat="identity") + scale_x_discrete(limits=c("HIGH WIND", "WINTER WEATHER", "ICE STORM", "FLASH FLOOD","HEAT", "LIGHTNING", "FLOOD", "EXCESSIVE HEAT", "THUNDERSTORM WIND", "TORNADO"))
+ g <- g + theme(axis.text.x = element_text(angle = 90, hjust = 1)) + ggtitle("Health Damage - 10 most severe events") + xlab("Weather Event") + ylab("Deaths and Injuries")
+print (g)
+````
+
+It is important to note that effects of Tornados have been recorded since 1950 and effects of Thunderstorm Wind and Hail since 1955 while all other events have only been recorded since 1996. For comparison purposes therefore it might be better to use an average fatalities per year metric rather than simply summing these values. If we were to do that then EXCESSIVE HEAT would be at the top of the fatalities table while TORNADO would remain the top cause of injuries. TORNADO would still be the most damaging event in terms of combined injuries and fatalities.  
+
+*2. Across the United States which types of events have the most economic consequences?*
+
+```{r}
+Stormdata %>% select (EVTYPE, PROPDMG, CROPDMG)%>% group_by (EVTYPE)%>%summarise (Property_Damage=sum(PROPDMG), Crop_Damage=sum(CROPDMG))%>% mutate (Total_Damage=Property_Damage + Crop_Damage)%>% arrange (desc(Total_Damage)) -> economic
+head (economic, 20)
+```
+
+The table above indicates that tornadoes were the most damaging event in economic terms followed by thunderstorm wind and flash flood. Again however a more comprehensive analysis would seek to quantify exactly how much damage occurred on a yearly basis as a result of each event. The analysis would also need to take into account the effects of inflation.
+
+```{r}
+topec <-  economic [1:10, 1:3]
+topecmelt <- melt (topec, id.var="EVTYPE")
+g1 <- ggplot(topecmelt, aes(x=EVTYPE, y=value, fill=variable)) + geom_bar(stat="identity") + scale_x_discrete(limits=c("WILDFIRE", "HEAVY SNOW", "WINTER STORM", "HIGH WIND", "LIGHTNING","FLOOD", "HAIL", "FLASH FLOOD", "THUNDERSTORM WIND", "TORNADO"))
+ g1 <- g1 + theme(axis.text.x = element_text(angle = 90, hjust = 1)) + ggtitle("Economic Damage - 10 most severe events") + xlab("Weather Event") + ylab("Property and Crop Damage")
+print (g1)
+````
+
+###**Limitations of this analysis**
+
+If this data were being used to inform public policy decisions then a more rigorous analysis should be carried out. Some limitations of this analysis have already been identified. I summarise these and others below.
+
+- The lack of a proper codebook meant mapping the event types was problematic. In some cases it was unclear which category a particular event type belonged in.The Remarks variable might be useful to assist with this.
+- Much of the mapping of the EVTYPE category was done manually with repeated use of the gsub function. 
+- This analysis is not properly comparing like with like. Some event types have 60 years woth of data, others much less. Either discarding measurements made before 1996 (when the standardised coding for event types became mandatory) or comparing event types in terms of mean damage per year would be more appropriate.
+- Units of economic damage are not clear and are not inflation adjusted. 
+- Trends in storm weather damage are not analysed over time to see whether particular evetns are resulting in increased damage in more recent years than other events. This would be important in terms of prioritising resource allocation.
+
+###**Websites that were useful for this analysis**
+
+[Storm Data FAQs](https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2FNCDC%20Storm%20Events-FAQ%20Page.pdf)
+
+[Storm Events Database](http://www.ncdc.noaa.gov/stormevents/)
+
+[Coursera Discussion Forums](https://class.coursera.org/repdata-032/forum/list?forum_id=10008)
+
+[Intro to dplyr](https://cran.rstudio.com/web/packages/dplyr/vignettes/introduction.html)
